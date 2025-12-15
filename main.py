@@ -395,16 +395,7 @@ async def try_activate_and_open_menu(user_id: int, chat_id: int):
         )
         return
 
-    phone = get_phone(user_id)
-    if not phone or not is_allowed_phone(phone):
-        await bot.send_message(
-            chat_id,
-            tr(user_id, "send_phone"),
-            reply_markup=request_phone_keyboard(),
-        )
-        return
-
-    ref = activate_user(user_id)
+        ref = activate_user(user_id)
     if ref:
         add_balance(ref, REF_BONUS)
         try:
@@ -487,28 +478,8 @@ async def check_sub(call: CallbackQuery):
 
 @router.message(F.contact)
 async def phone_received(message: Message):
-    user_id = message.from_user.id
-
-    if is_banned(user_id):
-        await message.answer("🚫 Ты заблокирован.")
-        return
-
-    c = message.contact
-    if c.user_id != user_id:
-        await message.answer(tr(user_id, "only_own_phone"))
-        return
-
-    phone = normalize_phone(c.phone_number)
-    if not is_allowed_phone(phone):
-        await message.answer(
-            tr(user_id, "bad_phone"),
-            reply_markup=request_phone_keyboard(),
-        )
-        return
-
-    if is_phone_used(phone, except_id=user_id):
-        await message.answer(tr(user_id, "phone_used"))
-        return
+    # Проверка номера отключена
+    await message.answer("ℹ️ Перевірка номера телефону вимкнена.")
 
 @router.message(F.contact)
 async def phone_received(message: Message):
@@ -556,27 +527,7 @@ async def my_profile(message: Message):
 
     user_id = message.from_user.id
     bal = get_balance(user_id)
-    phone = get_phone(user_id)
-    me = await bot.get_me()
-    ref_link = f"https://t.me/{me.username}?start={user_id}"
-
-    text = (
-        "👤 <b>Твой профиль</b>\n\n"
-        f"💰 Баланс: <b>{fmt_money(bal)}</b>\n"
-        f"📱 Телефон: <b>{phone if phone else 'не привязан'}</b>\n\n"
-        f"👥 Реф. ссылка:\n<code>{ref_link}</code>\n\n"
-        f"За каждого друга, который подпишется и активируется — "
-        f"ты получаешь <b>{fmt_money(REF_BONUS)}</b>."
-    )
-    await message.answer(text)
-
-
-@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
-async def invite_friend(message: Message):
-    if not await ensure_full_access(message):
-        return
-
-    user_id = message.from_user.id
+        user_id = message.from_user.id
     me = await bot.get_me()
     ref_link = f"https://t.me/{me.username}?start={user_id}"
 
