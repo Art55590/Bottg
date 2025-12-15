@@ -50,7 +50,6 @@ def init_db():
     _ensure_column(cur, "users", "last_bonus_at TEXT")
     _ensure_column(cur, "users", "banned INTEGER DEFAULT 0")
     _ensure_column(cur, "users", "balance REAL DEFAULT 0")
-    _ensure_column(cur, "users", "language TEXT DEFAULT 'unset'")
 
     # Таблица выводов
     cur.execute(
@@ -188,48 +187,6 @@ def get_phone(tg_id):
     row = cur.fetchone()
     conn.close()
     return row[0] if row else None
-
-
-# ---------- LANGUAGE ----------
-
-def get_language(tg_id):
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT language FROM users WHERE tg_id=?", (tg_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row and row[0] else "unset"
-
-def set_language(tg_id, lang: str):
-    if lang not in ("ru", "ua", "unset"):
-        lang = "ru"
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET language=? WHERE tg_id=?", (lang, tg_id))
-    conn.commit()
-    conn.close()
-
-
-# ---------- LANGUAGE ----------
-
-def get_language(tg_id):
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT language FROM users WHERE tg_id=?", (tg_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row and row[0] else "unset"
-
-
-def set_language(tg_id, lang: str):
-    if lang not in ("ru", "ua", "unset"):
-        lang = "unset"
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET language=? WHERE tg_id=?", (lang, tg_id))
-    conn.commit()
-    conn.close()
-
 
 
 def is_phone_used(phone: str, except_id: int | None = None) -> bool:
@@ -532,43 +489,3 @@ def list_all_users(limit: int = 200):
     rows = cur.fetchall()
     conn.close()
     return rows
-
-# ---------- LANGUAGE ----------
-
-def get_language(tg_id):
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT language FROM users WHERE tg_id=?", (tg_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row and row[0] else "unset"
-
-
-def set_language(tg_id, lang: str):
-    if lang not in ("ru", "ua", "unset"):
-        lang = "unset"
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET language=? WHERE tg_id=?", (lang, tg_id))
-    conn.commit()
-    conn.close()
-
-# ---------- LANGUAGE ----------
-
-def get_language(tg_id):
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT language FROM users WHERE tg_id=?", (tg_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row and row[0] else "unset"
-
-
-def set_language(tg_id, lang: str):
-    if lang not in ("ru", "ua", "unset"):
-        lang = "unset"
-    conn = _get_conn()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET language=? WHERE tg_id=?", (lang, tg_id))
-    conn.commit()
-    conn.close()
