@@ -383,10 +383,12 @@ async def ensure_full_access(message: Message) -> bool:
 
 
 async def try_activate_and_open_menu(user_id: int, chat_id: int):
+    # Без перевірки номера: тільки підписка -> мова -> меню
     if is_banned(user_id):
         await bot.send_message(chat_id, tr(user_id, "banned"))
         return
 
+    # Підписка
     if not await is_subscribed(user_id):
         await bot.send_message(
             chat_id,
@@ -395,63 +397,24 @@ async def try_activate_and_open_menu(user_id: int, chat_id: int):
         )
         return
 
-    phone = get_phone(user_id)
-    if not phone or not is_allowed_phone(phone):
-        await bot.send_message(
-            chat_id,
-            tr(user_id, "send_phone"),
-            reply_markup=request_phone_keyboard(),
-        )
-        return
+    # Активація (реф/статус)
+    activate_user(user_id)
 
-    ref = activate_user(user_id)
-    if ref:
-        add_balance(ref, REF_BONUS)
-        try:
-            await bot.send_message(
-                ref,
-                f"💸 Тебе начислено <b>{fmt_money(REF_BONUS)}</b> за нового реферала!",
-            )
-        except Exception:
-            pass
-
+    # Мова
     lang = get_lang(user_id)
-
-
     if lang == "unset":
-
-
         await bot.send_message(
-
-
             chat_id,
-
-
             tr(user_id, "choose_lang"),
-
-
             reply_markup=lang_keyboard(),
-
-
         )
-
-
         return
 
-
-
+    # Меню
     await bot.send_message(
-
-
         chat_id,
-
-
         tr(user_id, "access_open"),
-
-
         reply_markup=main_keyboard(lang),
-
-
     )
 
 
@@ -463,7 +426,7 @@ async def cmd_start(message: Message):
     text_parts = (message.text or "").split()
 
     if is_banned(user_id):
-        await message.answer("🚫 Ты заблокирован в этом боте.")
+        await message.answer(tr(user_id, "banned"))
         return
 
     ref_id = None
@@ -473,56 +436,19 @@ async def cmd_start(message: Message):
             if r != user_id:
                 ref_id = r
         except Exception:
-            pass
+            ref_id = None
+
+    create_user(user_id, ref_id)
+
+    await try_activate_and_open_menu(user_id, message.chat.id)
 
 @router.message(F.contact)
 async def phone_received(message: Message):
-    user_id = message.from_user.id
+    # Перевірка номера вимкнена. Якщо юзер надіслав контакт — просто повторимо перевірку доступу.
+    await try_activate_and_open_menu(message.from_user.id, message.chat.id)
 
-    if is_banned(user_id):
-        await message.answer("🚫 Ты заблокирован.")
-        return
 
-    c = message.contact
-    if c.user_id != user_id:
-        await message.answer(tr(user_id, "only_own_phone"))
-        return
 
-    phone = normalize_phone(c.phone_number)
-    if not is_allowed_phone(phone):
-        await message.answer(
-            tr(user_id, "bad_phone"),
-            reply_markup=request_phone_keyboard(),
-        )
-        return
-
-    if is_phone_used(phone, except_id=user_id):
-        await message.answer(tr(user_id, "phone_used"))
-        return
-
-@router.message(F.contact)
-async def phone_received(message: Message):
-    user_id = message.from_user.id
-    phone = message.contact.phone_number
-
-    set_phone(user_id, phone)
-    await message.answer(tr(user_id, "phone_saved"))
-
-    lang = get_lang(user_id)
-
-    # Якщо мова ще не обрана — одразу вибір мови
-    if lang == "unset":
-        await message.answer(
-            tr(user_id, "choose_lang"),
-            reply_markup=lang_keyboard(),
-        )
-        return
-
-    # Якщо мова вже є — одразу головне меню
-    await message.answer(
-        tr(user_id, "access_open"),
-        reply_markup=main_keyboard(lang),
-    )
 
 
 # ============ ВЫБОР ЯЗЫКА ============
