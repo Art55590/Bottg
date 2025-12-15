@@ -2,6 +2,13 @@ import os
 import psycopg2
 from datetime import datetime, timedelta, timezone
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL не найден. В Railway открой worker → Variables и добавь DATABASE_URL "
+        "(или подключи Postgres к worker через Shared Variables)."
+    )
+
 # Railway Postgres даёт DATABASE_URL автоматически (после подключения БД к сервису worker)
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
