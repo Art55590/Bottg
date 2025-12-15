@@ -139,6 +139,7 @@ def user_is_admin(tg_id: int) -> bool:
 
 def main_keyboard() -> ReplyKeyboardMarkup:
     kb = [
+        [KeyboardButton(text="📢 Подписка")],
         [KeyboardButton(text="💼 Мой профиль")],
         [KeyboardButton(text="👥 Пригласить друга")],
         [KeyboardButton(text="🎁 Ежедневный бонус"), KeyboardButton(text="📊 Статистика")],
@@ -159,28 +160,20 @@ def request_phone_keyboard() -> ReplyKeyboardMarkup:
 def subscribe_keyboard() -> InlineKeyboardMarkup:
     buttons = []
 
-    for idx, raw in enumerate(REQUIRED_CHANNELS, start=1):
-        ch = raw.strip()
-
-        # Приватный канал по ID -> открываем инвайт-ссылку
-        if ch.startswith("-100"):
-            # тут хардкод твоей ссылки-приглашения
-            url = "https://t.me/+EcWkfhMTXDgzN2Uy"
-            title = f"📢 Приватный канал {idx}"
+    for idx, ch in enumerate(REQUIRED_CHANNELS, start=1):
+        if ch in PRIVATE_CHANNELS:
+            url = PRIVATE_CHANNELS[ch]
         else:
-            # публичные каналы по username
-            username = ch.lstrip("@")
-            url = f"https://t.me/{username}"
-            title = f"📢 Канал {idx}"
+            url = _channel_to_url(ch)
 
-        buttons.append([InlineKeyboardButton(text=title, url=url)])
+        buttons.append(
+            [InlineKeyboardButton(text=f"📢 Канал {idx}", url=url)]
+        )
 
     buttons.append(
         [InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")]
     )
-
     return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 
 
 def withdraw_method_keyboard() -> InlineKeyboardMarkup:
@@ -285,48 +278,70 @@ async def ensure_full_access(message: Message) -> bool:
 
 
 async def try_activate_and_open_menu(user_id: int, chat_id: int):
-    # Без перевірки номера телефону: тільки підписка + вибір мови
     if is_banned(user_id):
-        await bot.send_message(chat_id, tr(user_id, "banned"))
+        await bot.send_message(chat_id, "🚫 Ты заблокирован в боте.")
         return
 
     if not await is_subscribed(user_id):
         await bot.send_message(
             chat_id,
-            tr(user_id, "not_sub"),
+            "❌ Ты не подписан на обязательные каналы.\n"
+            "Подпишись и нажми «Проверить подписку».",
             reply_markup=subscribe_keyboard(),
         )
         return
 
-    # Активуємо користувача (реф-бонуси як було)
-    activate_user(user_id)
-
-    lang = get_lang(user_id)
-    if lang == "unset":
+    phone = get_phone(user_id)
+    if not phone or not is_allowed_phone(phone):
         await bot.send_message(
             chat_id,
-            tr(user_id, "choose_lang"),
-            reply_markup=lang_keyboard(),
+            "📱 Отправь корректный номер телефона.\n"
+            "Поддерживаемые коды: +380, +7, +375.",
+            reply_markup=request_phone_keyboard(),
         )
         return
 
+    ref = activate_user(user_id)
+    if ref:
+        add_balance(ref, REF_BONUS)
+        try:
+            await bot.send_message(
+                ref,
+                f"💸 Тебе начислено <b>{fmt_money(REF_BONUS)}</b> за нового реферала!",
+            )
+        except Exception:
+            pass
+
     await bot.send_message(
         chat_id,
-        tr(user_id, "access_open"),
-        reply_markup=main_keyboard(lang),
+        "🎉 <b>Доступ к боту открыт!</b>\n"
+        "Пользуйся меню ниже 👇",
+        reply_markup=main_keyboard(),
     )
 
 
 # ============ /start, подписка, телефон ============
-@router.message(F.contact)
-async def phone_received(message: Message):
-    # Перевірка номера телефону вимкнена — просто продовжуємо активацію
-    user_id = message.from_user.id
-    if is_banned(user_id):
-        await message.answer(tr(user_id, "banned"))
-        return
-    await try_activate_and_open_menu(user_id, message.chat.id)
 
+@router.message(CommandStart())
+async def cmd_start(message: Message):
+    user_id = message.from_user.id
+    text_parts = (message.text or "").split()
+
+    if is_banned(user_id):
+        await message.answer("🚫 Ты заблокирован в этом боте.")
+        return
+
+    ref_id = None
+    if len(text_parts) > 1:
+        try:
+            r = int(text_parts[1])
+            if r != user_id:
+                ref_id = r
+        except Exception:
+            pass
+
+    create_user(user_id, ref_id)
+    await try_activate_and_open_menu(user_id, message.chat.id)
 
 
 @router.callback_query(F.data == "check_sub")
@@ -335,6 +350,48 @@ async def check_sub(call: CallbackQuery):
     await call.answer()
 
 
+@router.message(F.contact)
+async def phone_received(message: Message):
+    user_id = message.from_user.id
+
+    if is_banned(user_id):
+        await message.answer("🚫 Ты заблокирован.")
+        return
+
+    c = message.contact
+    if c.user_id != user_id:
+        await message.answer("❌ Можно отправлять только <b>свой</b> номер!")
+        return
+
+    phone = normalize_phone(c.phone_number)
+    if not is_allowed_phone(phone):
+        await message.answer(
+            "❌ Неподходящий номер.\nРазрешены коды: +380, +7, +375.",
+            reply_markup=request_phone_keyboard(),
+        )
+        return
+
+    if is_phone_used(phone, except_id=user_id):
+        await message.answer("❌ Этот номер уже привязан к другому аккаунту.")
+        return
+
+    set_phone(user_id, phone)
+    await message.answer("📱 Номер успешно сохранён!")
+
+    await try_activate_and_open_menu(user_id, message.chat.id)
+
+
+    # ============ ПОДПИСКА (ручная кнопка) ============
+
+@router.message(F.text == "📢 Подписка")
+async def show_subscribe_menu(message: Message):
+    await message.answer(
+        "📢 Підпишись на канали та натисни «Перевірити підписку» 👇",
+        reply_markup=subscribe_keyboard(),
+    )
+
+
+# ============ ПРОФИЛЬ, РЕФЫ, БОНУС, СТАТИСТИКА, ПРАВИЛА, ТОП ============
 
 @router.message(F.text == "💼 Мой профиль")
 async def my_profile(message: Message):
@@ -1239,19 +1296,6 @@ async def admin_pending(message: Message):
 
 
 # ============ СТАРТ БОТА ============
-
-
-@router.callback_query(F.data.startswith("lang:"))
-async def choose_language(call: CallbackQuery):
-    user_id = call.from_user.id
-    lang = call.data.split(":", 1)[1]
-    set_language(user_id, lang)
-    await call.message.answer(
-        tr(user_id, "access_open"),
-        reply_markup=main_keyboard(lang),
-    )
-    await call.answer()
-
 
 async def main():
     init_db()
