@@ -1,7 +1,7 @@
 # config.py
 
 # Токен бота от @BotFather
-BOT_TOKEN = "8372413837:AAF56J2g6D1omx6w9-kk64rx5N8ZmnY4dwA"
+BOT_TOKEN = "8453176440:AAEPrfFdPFCKCfzo3e1vK4AR4i-nKGpog-I"
 
 # Каналы для обязательной подписки (можно без @ или с @, или полной ссылкой)
 REQUIRED_CHANNELS = [
