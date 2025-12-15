@@ -475,16 +475,6 @@ async def cmd_start(message: Message):
         except Exception:
             pass
 
-    create_user(user_id, ref_id)
-    await try_activate_and_open_menu(user_id, message.chat.id)
-
-
-@router.callback_query(F.data == "check_sub")
-async def check_sub(call: CallbackQuery):
-    await try_activate_and_open_menu(call.from_user.id, call.message.chat.id)
-    await call.answer()
-
-
 @router.message(F.contact)
 async def phone_received(message: Message):
     user_id = message.from_user.id
