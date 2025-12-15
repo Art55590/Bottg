@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from config import PRIVATE_CHANNELS 
 
 from aiogram import Bot, Dispatcher, Router, F
@@ -31,9 +31,6 @@ from db import (
     activate_user,
     get_balance,
     add_balance,
-    get_phone,
-    set_phone,
-    is_phone_used,
     get_last_bonus_at,
     set_last_bonus_at,
     is_banned,
@@ -161,31 +158,12 @@ def fmt_money(amount: float) -> str:
     return f"{amount:.2f} грн (~{amount / USD_RATE:.2f} $)"
 
 
-def normalize_phone(phone: str) -> str:
-    """Normalize phone from Telegram contact.
-    Keeps only digits, preserves international format with leading '+'.
-    Examples:
-      '+380 (97) 123-45-67' -> '+380971234567'
-      '380971234567' -> '+380971234567'
-    """
-    raw = (phone or "").strip()
-    digits = "".join(ch for ch in raw if ch.isdigit())
-    if digits.startswith("00"):
-        digits = digits[2:]
-    if not digits:
-        return "+"
-    return "+" + digits
-
-
-def is_allowed_phone(phone: str) -> bool:
-    p = normalize_phone(phone)
-    return p.startswith(("+380", "+7", "+375")) and len(p) >= 5
 
 
 def get_bot_days_running() -> int:
     try:
         start = datetime.strptime(BOT_START_DATE, "%d.%m.%Y")
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return max((now - start).days, 0)
     except Exception:
         return 0
@@ -244,14 +222,6 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
         [KeyboardButton(text=b['top']), KeyboardButton(text=b['rules'])],
     ]
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=kb)
-
-
-def request_phone_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        resize_keyboard=True,
-        keyboard=[[KeyboardButton(text="📱 Отправить номер", request_contact=True)]],
-    )
-
 
 def subscribe_keyboard() -> InlineKeyboardMarkup:
     buttons = []
@@ -383,12 +353,10 @@ async def ensure_full_access(message: Message) -> bool:
 
 
 async def try_activate_and_open_menu(user_id: int, chat_id: int):
-    # Без перевірки номера: тільки підписка -> мова -> меню
     if is_banned(user_id):
         await bot.send_message(chat_id, tr(user_id, "banned"))
         return
 
-    # Підписка
     if not await is_subscribed(user_id):
         await bot.send_message(
             chat_id,
@@ -397,24 +365,54 @@ async def try_activate_and_open_menu(user_id: int, chat_id: int):
         )
         return
 
-    # Активація (реф/статус)
-    activate_user(user_id)
+    ref = activate_user(user_id)
+    if ref:
+        add_balance(ref, REF_BONUS)
+        try:
+            await bot.send_message(
+                ref,
+                f"💸 Тебе начислено <b>{fmt_money(REF_BONUS)}</b> за нового реферала!",
+            )
+        except Exception:
+            pass
 
-    # Мова
     lang = get_lang(user_id)
+
+
     if lang == "unset":
+
+
         await bot.send_message(
+
+
             chat_id,
+
+
             tr(user_id, "choose_lang"),
+
+
             reply_markup=lang_keyboard(),
+
+
         )
+
+
         return
 
-    # Меню
+
+
     await bot.send_message(
+
+
         chat_id,
+
+
         tr(user_id, "access_open"),
+
+
         reply_markup=main_keyboard(lang),
+
+
     )
 
 
@@ -436,20 +434,22 @@ async def cmd_start(message: Message):
             if r != user_id:
                 ref_id = r
         except Exception:
-            ref_id = None
+            pass
 
     create_user(user_id, ref_id)
 
-    await try_activate_and_open_menu(user_id, message.chat.id)
-
-@router.message(F.contact)
-async def phone_received(message: Message):
-    # Перевірка номера вимкнена. Якщо юзер надіслав контакт — просто повторимо перевірку доступу.
-    await try_activate_and_open_menu(message.from_user.id, message.chat.id)
-
+    # ВСЕГДА показываем спонсоров при входе
+    await message.answer(
+        tr(user_id, "sub_menu"),
+        reply_markup=subscribe_keyboard(),
+    )
 
 
 
+@router.callback_query(F.data == "check_sub")
+async def check_sub_handler(call: CallbackQuery):
+    await try_activate_and_open_menu(call.from_user.id, call.message.chat.id)
+    await call.answer()
 
 # ============ ВЫБОР ЯЗЫКА ============
 
@@ -472,15 +472,13 @@ async def my_profile(message: Message):
 
     user_id = message.from_user.id
     bal = get_balance(user_id)
-    phone = get_phone(user_id)
     me = await bot.get_me()
     ref_link = f"https://t.me/{me.username}?start={user_id}"
 
     text = (
         "👤 <b>Твой профиль</b>\n\n"
         f"💰 Баланс: <b>{fmt_money(bal)}</b>\n"
-        f"📱 Телефон: <b>{phone if phone else 'не привязан'}</b>\n\n"
-        f"👥 Реф. ссылка:\n<code>{ref_link}</code>\n\n"
+                f"👥 Реф. ссылка:\n<code>{ref_link}</code>\n\n"
         f"За каждого друга, который подпишется и активируется — "
         f"ты получаешь <b>{fmt_money(REF_BONUS)}</b>."
     )
@@ -509,7 +507,7 @@ async def daily_bonus(message: Message):
         return
 
     user_id = message.from_user.id
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     last = get_last_bonus_at(user_id)
 
     if last:
@@ -1125,7 +1123,7 @@ async def admin_panel(message: Message):
         return
 
     s = get_stats()
-    days = (datetime.utcnow().date() - datetime.strptime(BOT_START_DATE, "%d.%m.%Y").date()).days
+    days = (datetime.now(timezone.utc).date() - datetime.strptime(BOT_START_DATE, "%d.%m.%Y").date()).days
 
     text = (
         "<b>Админ-панель</b>\n\n"
