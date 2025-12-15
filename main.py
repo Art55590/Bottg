@@ -50,6 +50,8 @@ from db import (
     set_task_status,
     get_last_task_submission,
     list_new_withdrawals,
+    get_language,
+    set_language,
     list_users,          # 🔹 ДОБАВИЛ ЭТО
 )
 
@@ -71,6 +73,88 @@ DAILY_BONUS = 0.3
 DAILY_HOURS = 24
 
 
+# ============ ЯЗЫКИ (RU/UA) ============
+
+BUTTONS = {
+    "ru": {
+        "subscribe": "📢 Подписка",
+        "profile": "💼 Мой профиль",
+        "invite": "👥 Пригласить друга",
+        "daily": "🎁 Ежедневный бонус",
+        "stats": "📊 Статистика",
+        "withdraw": "💸 Вывод средств",
+        "tasks": "📝 Задания",
+        "top": "🏆 Топ рефералов",
+        "rules": "📜 Правила",
+    },
+    "ua": {
+        "subscribe": "📢 Підписка",
+        "profile": "💼 Мій профіль",
+        "invite": "👥 Запросити друга",
+        "daily": "🎁 Щоденний бонус",
+        "stats": "📊 Статистика",
+        "withdraw": "💸 Виведення коштів",
+        "tasks": "📝 Завдання",
+        "top": "🏆 Топ рефералів",
+        "rules": "📜 Правила",
+    },
+}
+
+TEXTS = {
+    "ru": {
+        "choose_lang": "🌍 Выбери язык / Оберіть мову:",
+        "not_sub": "❌ Ты не подписан на обязательные каналы.\nПодпишись и нажми «Проверить подписку».",
+        "send_phone": "📱 Отправь корректный номер телефона.\nПоддерживаемые коды: +380, +7, +375.",
+        "access_open": "🎉 <b>Доступ к боту открыт!</b>\nПользуйся меню ниже 👇",
+        "banned": "🚫 Ты заблокирован в боте.",
+        "phone_saved": "📱 Номер успешно сохранён!",
+        "only_own_phone": "❌ Можно отправлять только <b>свой</b> номер!",
+        "bad_phone": "❌ Некорректный номер.\nДозволені коди: +380, +7, +375.",
+        "phone_used": "❌ Этот номер уже привязан к другому аккаунту.",
+        "sub_menu": "📢 Подпишись на каналы и нажми «Проверить подписку» 👇",
+    },
+    "ua": {
+        "choose_lang": "🌍 Обери мову / Choose language:",
+        "not_sub": "❌ Ти не підписаний на обовʼязкові канали.\nПідпишись і натисни «Перевірити підписку».",
+        "send_phone": "📱 Надішли коректний номер телефону.\nПідтримувані коди: +380, +7, +375.",
+        "access_open": "🎉 <b>Доступ до бота відкрито!</b>\nКористуйся меню нижче 👇",
+        "banned": "🚫 Тебе заблоковано в боті.",
+        "phone_saved": "📱 Номер успішно збережено!",
+        "only_own_phone": "❌ Можна надсилати тільки <b>свій</b> номер!",
+        "bad_phone": "❌ Невідповідний номер.\nДозволені коди: +380, +7, +375.",
+        "phone_used": "❌ Цей номер уже привʼязаний до іншого акаунта.",
+        "sub_menu": "📢 Підпишись на канали та натисни «Перевірити підписку» 👇",
+    },
+}
+
+
+def get_lang(user_id: int) -> str:
+    lang = get_language(user_id)
+    if lang not in ("ru", "ua", "unset"):
+        return "unset"
+    return lang
+
+
+def tr(user_id: int, key: str) -> str:
+    lang = get_lang(user_id)
+    if lang == "unset":
+        lang = "ru"
+    return TEXTS.get(lang, TEXTS["ru"]).get(key, key)
+
+
+def lang_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang:ru"),
+            InlineKeyboardButton(text="🇺🇦 Українська", callback_data="lang:ua"),
+        ]]
+    )
+
+# каналы без админки: не ломаем бота, но сообщаем админу один раз
+notified_channels: set[str] = set()
+
+
+
 # ============ ХЕЛПЕРЫ ============
 
 def fmt_money(amount: float) -> str:
@@ -78,14 +162,24 @@ def fmt_money(amount: float) -> str:
 
 
 def normalize_phone(phone: str) -> str:
-    phone = phone.replace(" ", "")
-    if not phone.startswith("+"):
-        phone = "+" + phone
-    return phone
+    """Normalize phone from Telegram contact.
+    Keeps only digits, preserves international format with leading '+'.
+    Examples:
+      '+380 (97) 123-45-67' -> '+380971234567'
+      '380971234567' -> '+380971234567'
+    """
+    raw = (phone or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if digits.startswith("00"):
+        digits = digits[2:]
+    if not digits:
+        return "+"
+    return "+" + digits
 
 
 def is_allowed_phone(phone: str) -> bool:
-    return phone.startswith("+380") or phone.startswith("+7") or phone.startswith("+375")
+    p = normalize_phone(phone)
+    return p.startswith(("+380", "+7", "+375")) and len(p) >= 5
 
 
 def get_bot_days_running() -> int:
@@ -137,15 +231,17 @@ def user_is_admin(tg_id: int) -> bool:
 
 # ============ КЛАВИАТУРЫ ============
 
-def main_keyboard() -> ReplyKeyboardMarkup:
+def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
+    if lang not in ('ru','ua'):
+        lang='ru'
+    b = BUTTONS[lang]
     kb = [
-        [KeyboardButton(text="📢 Подписка")],
-        [KeyboardButton(text="💼 Мой профиль")],
-        [KeyboardButton(text="👥 Пригласить друга")],
-        [KeyboardButton(text="🎁 Ежедневный бонус"), KeyboardButton(text="📊 Статистика")],
-        [KeyboardButton(text="💸 Вывод средств")],
-        [KeyboardButton(text="📝 Задания")],
-        [KeyboardButton(text="🏆 Топ рефералов"), KeyboardButton(text="📜 Правила")],
+        [KeyboardButton(text=b['profile'])],
+        [KeyboardButton(text=b['invite'])],
+        [KeyboardButton(text=b['daily']), KeyboardButton(text=b['stats'])],
+        [KeyboardButton(text=b['withdraw'])],
+        [KeyboardButton(text=b['tasks'])],
+        [KeyboardButton(text=b['top']), KeyboardButton(text=b['rules'])],
     ]
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=kb)
 
@@ -161,19 +257,17 @@ def subscribe_keyboard() -> InlineKeyboardMarkup:
     buttons = []
 
     for idx, ch in enumerate(REQUIRED_CHANNELS, start=1):
+        ch = ch.strip()
         if ch in PRIVATE_CHANNELS:
             url = PRIVATE_CHANNELS[ch]
         else:
             url = _channel_to_url(ch)
 
-        buttons.append(
-            [InlineKeyboardButton(text=f"📢 Канал {idx}", url=url)]
-        )
+        buttons.append([InlineKeyboardButton(text=f"📢 Канал {idx}", url=url)])
 
-    buttons.append(
-        [InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")]
-    )
+    buttons.append([InlineKeyboardButton(text="🔄 Проверить подписку", callback_data="check_sub")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 
 def withdraw_method_keyboard() -> InlineKeyboardMarkup:
@@ -237,12 +331,24 @@ async def is_subscribed(user_id: int) -> bool:
 
         try:
             member = await bot.get_chat_member(chat_id, user_id)
-            if member.status not in ("member", "administrator", "creator", "owner"):
+            if member.status not in ("member", "administrator", "creator"):
                 return False
         except Exception as e:
-            logging.warning(
-                f"Ошибка проверки подписки {user_id} на {chat_id}: {e}"
-            )
+            msg = str(e)
+            logging.debug(f"Ошибка проверки подписки {user_id} на {chat_id}: {msg}")
+
+            low = msg.lower()
+            if ("forbidden" in low) or ("not a member" in low) or ("chat not found" in low) or ("member list is inaccessible" in low):
+                key = str(chat_id)
+                if key not in notified_channels:
+                    notified_channels.add(key)
+                    for adm in ADMINS:
+                        try:
+                            await bot.send_message(adm, f"⚠️ Канал {chat_id} не проверяется: боту не дали доступ (нужно добавить бота админом/право видеть участников).\nПока что канал временно пропускается в проверке.")
+                        except Exception:
+                            pass
+                continue
+
             return False
 
     return True
@@ -261,14 +367,13 @@ async def ensure_full_access(message: Message) -> bool:
 
     # Бан
     if is_banned(user_id):
-        await message.answer("🚫 Ты заблокирован в боте.")
+        await message.answer(tr(user_id, "banned"))
         return False
 
     # Подписка
     if not await is_subscribed(user_id):
         await message.answer(
-            "❌ Ты не подписан на обязательные каналы.\n"
-            "Подпишись и нажми «Проверить подписку».",
+            tr(user_id, "not_sub"),
             reply_markup=subscribe_keyboard(),
         )
         return False
@@ -279,14 +384,13 @@ async def ensure_full_access(message: Message) -> bool:
 
 async def try_activate_and_open_menu(user_id: int, chat_id: int):
     if is_banned(user_id):
-        await bot.send_message(chat_id, "🚫 Ты заблокирован в боте.")
+        await bot.send_message(chat_id, tr(user_id, "banned"))
         return
 
     if not await is_subscribed(user_id):
         await bot.send_message(
             chat_id,
-            "❌ Ты не подписан на обязательные каналы.\n"
-            "Подпишись и нажми «Проверить подписку».",
+            tr(user_id, "not_sub"),
             reply_markup=subscribe_keyboard(),
         )
         return
@@ -295,8 +399,7 @@ async def try_activate_and_open_menu(user_id: int, chat_id: int):
     if not phone or not is_allowed_phone(phone):
         await bot.send_message(
             chat_id,
-            "📱 Отправь корректный номер телефона.\n"
-            "Поддерживаемые коды: +380, +7, +375.",
+            tr(user_id, "send_phone"),
             reply_markup=request_phone_keyboard(),
         )
         return
@@ -312,11 +415,43 @@ async def try_activate_and_open_menu(user_id: int, chat_id: int):
         except Exception:
             pass
 
+    lang = get_lang(user_id)
+
+
+    if lang == "unset":
+
+
+        await bot.send_message(
+
+
+            chat_id,
+
+
+            tr(user_id, "choose_lang"),
+
+
+            reply_markup=lang_keyboard(),
+
+
+        )
+
+
+        return
+
+
+
     await bot.send_message(
+
+
         chat_id,
-        "🎉 <b>Доступ к боту открыт!</b>\n"
-        "Пользуйся меню ниже 👇",
-        reply_markup=main_keyboard(),
+
+
+        tr(user_id, "access_open"),
+
+
+        reply_markup=main_keyboard(lang),
+
+
     )
 
 
@@ -360,40 +495,61 @@ async def phone_received(message: Message):
 
     c = message.contact
     if c.user_id != user_id:
-        await message.answer("❌ Можно отправлять только <b>свой</b> номер!")
+        await message.answer(tr(user_id, "only_own_phone"))
         return
 
     phone = normalize_phone(c.phone_number)
     if not is_allowed_phone(phone):
         await message.answer(
-            "❌ Неподходящий номер.\nРазрешены коды: +380, +7, +375.",
+            tr(user_id, "bad_phone"),
             reply_markup=request_phone_keyboard(),
         )
         return
 
     if is_phone_used(phone, except_id=user_id):
-        await message.answer("❌ Этот номер уже привязан к другому аккаунту.")
+        await message.answer(tr(user_id, "phone_used"))
         return
 
+@router.message(F.contact)
+async def phone_received(message: Message):
+    user_id = message.from_user.id
+    phone = message.contact.phone_number
+
     set_phone(user_id, phone)
-    await message.answer("📱 Номер успешно сохранён!")
+    await message.answer(tr(user_id, "phone_saved"))
 
-    await try_activate_and_open_menu(user_id, message.chat.id)
+    lang = get_lang(user_id)
 
+    # Якщо мова ще не обрана — одразу вибір мови
+    if lang == "unset":
+        await message.answer(
+            tr(user_id, "choose_lang"),
+            reply_markup=lang_keyboard(),
+        )
+        return
 
-    # ============ ПОДПИСКА (ручная кнопка) ============
-
-@router.message(F.text == "📢 Подписка")
-async def show_subscribe_menu(message: Message):
+    # Якщо мова вже є — одразу головне меню
     await message.answer(
-        "📢 Підпишись на канали та натисни «Перевірити підписку» 👇",
-        reply_markup=subscribe_keyboard(),
+        tr(user_id, "access_open"),
+        reply_markup=main_keyboard(lang),
     )
 
 
+# ============ ВЫБОР ЯЗЫКА ============
+
+@router.callback_query(F.data.startswith('lang:'))
+async def set_lang_handler(call: CallbackQuery):
+    user_id = call.from_user.id
+    lang = call.data.split(':', 1)[1]
+    if lang not in ('ru','ua'):
+        lang = 'ru'
+    set_language(user_id, lang)
+    await call.message.answer(tr(user_id, 'access_open'), reply_markup=main_keyboard(lang))
+    await call.answer()
+
 # ============ ПРОФИЛЬ, РЕФЫ, БОНУС, СТАТИСТИКА, ПРАВИЛА, ТОП ============
 
-@router.message(F.text == "💼 Мой профиль")
+@router.message(F.text.in_([BUTTONS["ru"]["profile"], BUTTONS["ua"]["profile"]]))
 async def my_profile(message: Message):
     if not await ensure_full_access(message):
         return
@@ -415,7 +571,7 @@ async def my_profile(message: Message):
     await message.answer(text)
 
 
-@router.message(F.text == "👥 Пригласить друга")
+@router.message(F.text.in_([BUTTONS["ru"]["invite"], BUTTONS["ua"]["invite"]]))
 async def invite_friend(message: Message):
     if not await ensure_full_access(message):
         return
@@ -431,7 +587,7 @@ async def invite_friend(message: Message):
     )
 
 
-@router.message(F.text == "🎁 Ежедневный бонус")
+@router.message(F.text.in_([BUTTONS["ru"]["daily"], BUTTONS["ua"]["daily"]]))
 async def daily_bonus(message: Message):
     if not await ensure_full_access(message):
         return
@@ -466,7 +622,7 @@ async def daily_bonus(message: Message):
     )
 
 
-@router.message(F.text == "📊 Статистика")
+@router.message(F.text.in_([BUTTONS["ru"]["stats"], BUTTONS["ua"]["stats"]]))
 async def stats_public(message: Message):
     s = get_stats()
     days = get_bot_days_running()
@@ -481,7 +637,7 @@ async def stats_public(message: Message):
     await message.answer(text)
 
 
-@router.message(F.text == "📜 Правила")
+@router.message(F.text.in_([BUTTONS["ru"]["rules"], BUTTONS["ua"]["rules"]]))
 async def rules(message: Message):
     if not await ensure_full_access(message):
         return
@@ -500,7 +656,7 @@ async def rules(message: Message):
     await message.answer(text)
 
 
-@router.message(F.text == "🏆 Топ рефералов")
+@router.message(F.text.in_([BUTTONS["ru"]["top"], BUTTONS["ua"]["top"]]))
 async def top_referrals(message: Message):
     if not await ensure_full_access(message):
         return
@@ -527,7 +683,7 @@ async def top_referrals(message: Message):
 
 # ============ ЗАДАНИЯ ============
 
-@router.message(F.text == "📝 Задания")
+@router.message(F.text.in_([BUTTONS["ru"]["tasks"], BUTTONS["ua"]["tasks"]]))
 async def tasks_menu_handler(message: Message):
     if not await ensure_full_access(message):
         return
@@ -541,7 +697,7 @@ async def tasks_menu_handler(message: Message):
         text += f"• {t['title']} — <b>{fmt_money(t['price'])}</b>\n"
 
     text += (
-        "\nЕсли хотите добавить СВОЁ задание в бот — пишите сюда: @Crypt64\n\n"
+        "\nЕсли хотите добавить СВОЁ задание в бот — пишите сюда: @Bassss6\n\n"
         "Выбери задание из списка ниже 👇"
     )
 
@@ -769,7 +925,7 @@ async def task_no(call: CallbackQuery):
 
 # ============ ВЫВОД СРЕДСТВ ============
 
-@router.message(F.text == "💸 Вывод средств")
+@router.message(F.text.in_([BUTTONS["ru"]["withdraw"], BUTTONS["ua"]["withdraw"]]))
 async def start_withdraw(message: Message):
     if not await ensure_full_access(message):
         return
