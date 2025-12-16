@@ -196,7 +196,7 @@ TASKS = [
 },
 
 {
-    "id": "channel_sub",
+    "id": "channel_sub_05",
     "title": "Подписка на канал — 0.5 грн",
     "price": 0.5,
     "one_time": True,
