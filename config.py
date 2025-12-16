@@ -197,3 +197,4 @@ TASKS = [
 
 ]
 
+PAYOUTS_CHANNEL_URL = "https://t.me/earnmoney8301"
