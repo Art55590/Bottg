@@ -195,6 +195,19 @@ TASKS = [
     ),
 },
 
+{
+    "id": "channel_sub",
+    "title": "Подписка на канал — 0.5 грн",
+    "price": 0.5,
+    "one_time": True,
+    "requires_screenshot": True,
+    "instructions": (
+        "🔔 Подпишись на канал:\n"
+        "https://t.me/+-vxMZ9rWVI43MGE0\n\n"
+        "📸 После подписки отправь скриншот подтверждения в бота."
+    )
+},
+
 ]
 
 PAYOUTS_CHANNEL_URL = "https://t.me/earnmoney8301"
