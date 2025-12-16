@@ -29,6 +29,7 @@ from config import (
 from db import (
     init_db,
     create_user,
+    get_user,
     activate_user,
     get_balance,
     add_balance,
@@ -47,6 +48,7 @@ from db import (
     get_task_submission,
     set_task_status,
     get_last_task_submission,
+    has_any_approved_task,
     list_new_withdrawals,
     get_language,
     set_language,
@@ -380,6 +382,70 @@ async def ensure_full_access(message: Message) -> bool:
 
 
 
+
+async def try_qualify_referral(user_id: int):
+    """Засчитываем реферала ТОЛЬКО если он:
+    1) забрал бонус (есть last_bonus_at)
+    2) выполнил хотя бы 1 задание (есть approved task_submissions)
+
+    Порядок не важен: функцию вызываем и после бонуса, и после approve задания.
+    """
+    try:
+        u = get_user(user_id)
+    except Exception:
+        return
+
+    if not u:
+        return
+
+    # get_user: (tg_id, balance, referrer_id, activated, phone, created_at, last_bonus_at, banned)
+    referrer_id = u[2]
+    activated = int(u[3] or 0)
+
+    # Уже засчитан
+    if activated == 1:
+        return
+
+    # Нет реферера
+    if not referrer_id:
+        return
+
+    # 1) бонус должен быть забран
+    if not get_last_bonus_at(user_id):
+        return
+
+    # 2) хотя бы 1 одобренное задание
+    if not has_any_approved_task(user_id):
+        return
+
+    # Засчитываем реферала: отмечаем activated=1 и начисляем бонус рефереру (один раз)
+    # activate_user вернет referrer_id только при первом засчёте.
+    try:
+        ref = activate_user(user_id)
+    except Exception:
+        return
+
+    if not ref:
+        return
+
+    try:
+        add_balance(ref, REF_BONUS)
+    except Exception:
+        return
+
+    # Уведомление рефереру (не критично)
+    try:
+        await bot.send_message(
+            ref,
+            f"✅ У тебя новый активный реферал: <code>{user_id}</code>\n"
+            f"Начислено: <b>{fmt_money(REF_BONUS)}</b>."
+        )
+    except Exception:
+        pass
+
+
+
+
 async def try_activate_and_open_menu(user_id: int, chat_id: int):
     if is_banned(user_id):
         await bot.send_message(chat_id, tr(user_id, "banned"))
@@ -393,16 +459,7 @@ async def try_activate_and_open_menu(user_id: int, chat_id: int):
         )
         return
 
-    ref = activate_user(user_id)
-    if ref:
-        add_balance(ref, REF_BONUS)
-        try:
-            await bot.send_message(
-                ref,
-                f"💸 Тебе начислено <b>{fmt_money(REF_BONUS)}</b> за нового реферала!",
-            )
-        except Exception:
-            pass
+    # ⚠️ Реферал засчитывается НЕ при входе, а только после: бонус + 1 задание.
 
     lang = get_lang(user_id)
 
@@ -507,7 +564,7 @@ async def my_profile(message: Message):
         "👤 <b>Твой профиль</b>\n\n"
         f"💰 Баланс: <b>{fmt_money(bal)}</b>\n"
                 f"👥 Реф. ссылка:\n<code>{ref_link}</code>\n\n"
-        f"За каждого друга, который подпишется и активируется — "
+        f"За каждого друга, который заберёт бонус и выполнит хотя бы 1 задание — "
         f"ты получаешь <b>{fmt_money(REF_BONUS)}</b>."
     )
     await message.answer(text)
@@ -525,7 +582,7 @@ async def invite_friend(message: Message):
     await message.answer(
         "Отправь эту ссылку друзьям:\n"
         f"<code>{ref_link}</code>\n\n"
-        f"За каждого активированного друга ты получишь <b>{fmt_money(REF_BONUS)}</b>.",
+        f"За каждого друга, который заберёт бонус и выполнит хотя бы 1 задание, ты получишь <b>{fmt_money(REF_BONUS)}</b>.",
     )
 
 
@@ -556,6 +613,7 @@ async def daily_bonus(message: Message):
 
     add_balance(user_id, DAILY_BONUS)
     set_last_bonus_at(user_id, now.isoformat())
+    await try_qualify_referral(user_id)
     bal = get_balance(user_id)
 
     await message.answer(
@@ -793,6 +851,9 @@ async def task_ok(call: CallbackQuery):
 
     set_task_status(sub_id, "approved")
     add_balance(tg_id, t["price"])
+
+    # Проверяем, не стал ли реферал "активным" (бонус + 1 задание)
+    await try_qualify_referral(tg_id)
 
     try:
         await call.message.edit_caption(

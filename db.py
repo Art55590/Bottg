@@ -393,6 +393,25 @@ def get_last_task_submission(tg_id, task_id):
     return row
 
 
+def has_any_approved_task(tg_id) -> bool:
+    """True, если у пользователя есть хотя бы 1 одобренная заявка по заданиям."""
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT 1
+        FROM task_submissions
+        WHERE tg_id=%s AND status='approved'
+        LIMIT 1
+        """,
+        (tg_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+
+
 # ---------- STATS / TOP / USERS ----------
 
 def get_stats():
