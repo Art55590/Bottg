@@ -24,6 +24,7 @@ from config import (
     ADMINS,
     BOT_START_DATE,
     TASKS,
+    PAYOUTS_CHANNEL_URL,
 )
 from db import (
     init_db,
@@ -85,6 +86,7 @@ BUTTONS = {
         "tasks": "📝 Задания",
         "top": "🏆 Топ рефералов",
         "rules": "📜 Правила",
+        "payouts": "💸 Канал с выплатами",
     },
     "ua": {
         "subscribe": "📢 Підписка",
@@ -96,6 +98,7 @@ BUTTONS = {
         "tasks": "📝 Завдання",
         "top": "🏆 Топ рефералів",
         "rules": "📜 Правила",
+        "payouts": "💸 Канал с выплатами",
     },
 }
 
@@ -222,6 +225,7 @@ def main_keyboard(lang: str = 'ru') -> ReplyKeyboardMarkup:
         [KeyboardButton(text=b['withdraw'])],
         [KeyboardButton(text=b['tasks'])],
         [KeyboardButton(text=b['top']), KeyboardButton(text=b['rules'])],
+        [KeyboardButton(text=b['payouts'])],
     ]
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=kb)
 
@@ -242,6 +246,28 @@ def subscribe_keyboard() -> InlineKeyboardMarkup:
 
 
 
+
+
+# ============ КАНАЛ С ВЫПЛАТАМИ ============
+
+def payouts_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💸 Перейти в канал выплат", url=PAYOUTS_CHANNEL_URL)]
+        ]
+    )
+
+
+@router.message(F.text.in_([BUTTONS["ru"]["payouts"], BUTTONS["ua"]["payouts"]]))
+async def payouts_channel_button(message: Message):
+    if not await ensure_full_access(message):
+        return
+
+    await message.answer(
+        "💸 Все выплаты публикуются в нашем канале 👇",
+        reply_markup=payouts_inline_keyboard(),
+        disable_web_page_preview=True,
+    )
 def withdraw_method_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
