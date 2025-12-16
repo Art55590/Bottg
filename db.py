@@ -476,3 +476,32 @@ def list_all_users(limit: int = 200):
     rows = cur.fetchall()
     conn.close()
     return rows
+
+# ===== USERS PAGINATION (для /users) =====
+
+def count_users():
+    """Количество всех пользователей."""
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM users")
+    total = cur.fetchone()[0]
+    conn.close()
+    return int(total)
+
+
+def list_users_page(offset: int = 0, limit: int = 50):
+    """Страница пользователей (для админ-команды /users)."""
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT tg_id, balance, activated, banned, created_at
+        FROM users
+        ORDER BY id ASC
+        OFFSET %s LIMIT %s
+        """,
+        (offset, limit),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows

@@ -50,6 +50,8 @@ from db import (
     get_language,
     set_language,
     list_users,          # 🔹 ДОБАВИЛ ЭТО
+    count_users,
+    list_users_page,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -1148,25 +1150,77 @@ async def admin_panel(message: Message):
 
 @router.message(Command("users"))
 async def admin_users(message: Message):
-    """Список первых N пользователей"""
+    """Постраничный список пользователей (по 50)"""
     if not user_is_admin(message.from_user.id):
         return
 
-    users = list_users(limit=30)
-    if not users:
-        await message.answer("Пользователей пока нет.")
+    page = 0
+    text, kb = _format_users_page(page)
+    await message.answer(text, reply_markup=kb)
+
+
+USERS_PER_PAGE = 50
+
+
+def _users_keyboard(page: int, total: int) -> InlineKeyboardMarkup:
+    max_page = max(0, (total - 1) // USERS_PER_PAGE)
+
+    row = []
+    if page > 0:
+        row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"users_page:{page-1}"))
+    row.append(InlineKeyboardButton(text=f"{page+1}/{max_page+1}", callback_data="users_page:noop"))
+    if page < max_page:
+        row.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"users_page:{page+1}"))
+
+    return InlineKeyboardMarkup(inline_keyboard=[row])
+
+
+def _format_users_page(page: int):
+    total = count_users()
+    max_page = max(0, (total - 1) // USERS_PER_PAGE)
+    page = max(0, min(page, max_page))
+
+    offset = page * USERS_PER_PAGE
+    rows = list_users_page(offset=offset, limit=USERS_PER_PAGE)
+
+    text = f"👥 <b>Пользователи:</b> {total}\n📄 <b>Страница:</b> {page+1}/{max_page+1}\n\n"
+    if not rows:
+        text += "Пользователей пока нет."
+        return text, _users_keyboard(page, total)
+
+    for tg_id, balance, activated, banned, created_at in rows:
+        a = "✅" if int(activated) == 1 else "❌"
+        b = "🚫" if int(banned) == 1 else "—"
+        text += f"ID: <code>{tg_id}</code> | 💰 {float(balance):.2f} | A:{a} | Ban:{b}\n"
+
+    return text, _users_keyboard(page, total)
+
+
+@router.callback_query(F.data.startswith("users_page:"))
+async def cb_users_page(call: CallbackQuery):
+    if not user_is_admin(call.from_user.id):
+        await call.answer("Нет доступа", show_alert=True)
         return
 
-    lines = ["👥 <b>Первые пользователи:</b>"]
-    for u in users:
-        tg_id, balance, ref_id, activated, phone, created_at, last_bonus_at, banned = u
-        lines.append(
-            f"ID: <code>{tg_id}</code> | Баланс: {balance:.2f} | "
-            f"Актив: {'✅' if activated else '❌'} | "
-            f"Тел: {phone if phone else '-'} | "
-            f"Бан: {'🚫' if banned else '✅'}"
-        )
-    await message.answer("\n".join(lines))
+    _, value = call.data.split(":", 1)
+    if value == "noop":
+        await call.answer()
+        return
+
+    try:
+        page = int(value)
+    except ValueError:
+        await call.answer()
+        return
+
+    text, kb = _format_users_page(page)
+    try:
+        await call.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        await call.message.answer(text, reply_markup=kb)
+
+    await call.answer()
+
 
 
 @router.message(Command("ban"))
