@@ -8,12 +8,14 @@ REQUIRED_CHANNELS = [
     "-1001860574110",
     "-1001560856411",
     '-1001383662329',
+    "-1001194739066",
 ]
 
 PRIVATE_CHANNELS = {
     "-1001860574110": "https://t.me/+k-NOcOYCQek1NWQy",
     "-1001560856411": "https://t.me/+jTcK0sB1cndmYTcy",
     "-1001383662329": "https://t.me/+8mjqocCWjAE3ZGMy",
+    "-1001194739066": "https://t.me/+SfOL9qT5sMo5ZTVi",
 }
 
 # Сколько грн даём за одного активированного реферала
